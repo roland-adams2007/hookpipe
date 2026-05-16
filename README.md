@@ -6,17 +6,23 @@
 
 ## What is HookPipe?
 
-HookPipe is a clean, scalable backend system for handling incoming webhook payloads. It exposes a single endpoint that validates incoming requests, persists events to the database, and dispatches background jobs to process them — keeping your response time fast and your processing reliable.
+HookPipe is a clean, scalable backend system for handling incoming webhook payloads. It exposes a token-based endpoint per user that validates incoming requests, persists events to the database, and dispatches background jobs to process them — keeping your response time fast and your processing reliable.
+
+Users can also dispatch outbound webhooks to external callback URLs, test payloads against a local echo endpoint, and monitor incoming events via a live polling interface.
 
 ---
 
 ## Features
 
-- ✅ `POST /webhook` endpoint for receiving payloads
+- ✅ Token-based webhook URL per user (`POST /token/{webhook_token}`)
 - ✅ Payload validation before any processing
 - ✅ Persistent event storage in the database
 - ✅ Asynchronous job dispatch via Laravel Queues
 - ✅ Event broadcasting using Laravel Events
+- ✅ Outbound webhook dispatch with callback URL support
+- ✅ Local echo endpoint for test mode
+- ✅ Live polling interface for real-time event monitoring
+- ✅ Auth system (register, login, logout)
 - ✅ Clean, production-ready architecture
 
 ---
@@ -24,7 +30,8 @@ HookPipe is a clean, scalable backend system for handling incoming webhook paylo
 ## Tech Stack
 
 - **Framework:** Laravel 11
-- **Queue Driver:** Redis (or database for local dev)
+- **Queue Driver:** Database
+- **Database:** PostgreSQL
 - **Language:** PHP 8.2+
 
 ---
@@ -35,10 +42,10 @@ HookPipe is a clean, scalable backend system for handling incoming webhook paylo
 Incoming Webhook
       │
       ▼
-POST /webhook
+POST /token/{webhook_token}
       │
       ▼
-Validate Payload ──► 422 on failure
+Validate Payload (WebhookRequest) ──► 422 on failure
       │
       ▼
 Store WebhookEvent (DB)
@@ -51,6 +58,21 @@ Queue Worker picks up job
       │
       ▼
 Fire WebhookProcessed Event
+```
+
+Outbound flow (user-initiated):
+
+```
+User submits payload + callback URL
+      │
+      ▼
+WebhookController stores event
+      │
+      ▼
+Dispatch SendWebhookJob
+      │
+      ▼
+Job POSTs payload to callback URL
 ```
 
 ---
@@ -75,8 +97,13 @@ php artisan key:generate
 ### 3. Configure your environment
 
 ```env
-QUEUE_CONNECTION=redis
-DB_CONNECTION=mysql
+QUEUE_CONNECTION=database
+DB_CONNECTION=pgsql
+DB_HOST=127.0.0.1
+DB_PORT=5432
+DB_DATABASE=hookpipe
+DB_USERNAME=your_db_user
+DB_PASSWORD=your_db_password
 ```
 
 ### 4. Run migrations
@@ -94,9 +121,9 @@ php artisan queue:work
 ### 6. Send a test webhook
 
 ```bash
-curl -X POST http://localhost:8000/webhook \
+curl -X POST http://localhost:8000/token/{your_webhook_token} \
   -H "Content-Type: application/json" \
-  -d '{"event": "order.created", "payload": {"id": 1, "amount": 5000}}'
+  -d '{"event": "order.created", "data": {"id": 1, "amount": 5000}}'
 ```
 
 ---
@@ -106,16 +133,25 @@ curl -X POST http://localhost:8000/webhook \
 ```
 app/
 ├── Http/
-│   └── Controllers/
-│       └── WebhookController.php   # Validates & stores incoming events
+│   ├── Controllers/
+│   │   ├── AuthController.php          # Register, login, logout
+│   │   ├── HomeController.php          # Dashboard / landing
+│   │   ├── WebhookController.php       # Receive, store & dispatch webhooks
+│   │   └── TokenController.php         # Token-based webhook ingestion
+│   └── Requests/
+│       └── WebhookRequest.php          # Validates incoming webhook payload
 ├── Jobs/
-│   └── ProcessWebhookJob.php       # Background job for processing
+│   ├── ProcessWebhookJob.php           # Processes stored webhook events
+│   └── SendWebhookJob.php              # Dispatches outbound webhook to callback URL
 ├── Events/
-│   └── WebhookProcessed.php        # Fired after successful processing
+│   └── WebhookProcessed.php            # Fired after successful processing
 ├── Models/
-│   └── WebhookEvent.php            # Stores raw event data
+│   ├── User.php                        # Auth user with webhook_token
+│   └── WebhookEvent.php               # Stores raw event data
 database/
 └── migrations/
+    ├── create_users_table.php
+    ├── create_jobs_table.php
     └── create_webhook_events_table.php
 ```
 
@@ -123,14 +159,16 @@ database/
 
 ## API Reference
 
-### `POST /webhook`
+### `POST /token/{webhook_token}`
+
+Receives an incoming webhook event for the user identified by the token.
 
 **Request Body:**
 
 ```json
 {
   "event": "order.created",
-  "payload": {
+  "data": {
     "id": 1,
     "amount": 5000
   }
@@ -156,18 +194,56 @@ database/
 
 ---
 
+### `POST /webhook/send`
+
+Dispatches an outbound webhook to an external callback URL.
+
+**Request Body:**
+
+```json
+{
+  "callback_url": "https://your-server.com/receive",
+  "payload": {
+    "event": "user.payment_updated",
+    "data": { "id": 1 }
+  }
+}
+```
+
+---
+
+### `GET /webhook/echo`
+
+Local echo endpoint used in test mode. Returns the received payload as-is — no external URL needed.
+
+---
+
+### `GET /webhook/latest`
+
+Returns the most recently received webhook event. Used by the polling interface.
+
+---
+
+### `GET /webhook/verify/{id}`
+
+Returns the stored log and delivery status for a given event ID.
+
+---
+
 ## Concepts Demonstrated
 
 | Concept | Implementation |
 |---|---|
-| **Jobs** | `ProcessWebhookJob` handles async processing logic |
-| **Queues** | Jobs are pushed to the queue, not processed in the request cycle |
+| **Jobs** | `ProcessWebhookJob` handles async processing; `SendWebhookJob` handles outbound delivery |
+| **Queues** | Database-backed queue — jobs are never processed in the request cycle |
 | **Events** | `WebhookProcessed` event fired after job completes |
-| **Validation** | Laravel Form Request validates payload before storage |
+| **Validation** | `WebhookRequest` validates payload before storage |
 | **Persistence** | Every webhook is stored — nothing is lost |
+| **Auth** | `AuthController` handles registration, login and logout |
+| **Token routing** | Each user gets a unique `webhook_token` embedded in their personal URL |
 
 ---
 
 ## License
 
-MIT# hookpipe
+MIT
