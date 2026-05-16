@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sign in — WebhookLogs</title>
+    <title>Sign in — {{ config('app.name') }}</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Syne:wght@400;600;700;800&display=swap');
@@ -135,7 +135,7 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
             </svg>
         </span>
-        <span class="text-base font-extrabold tracking-tight">WebhookLogs</span>
+        <span class="text-base font-extrabold tracking-tight">{{ config('app.name') }}</span>
     </a>
 
     {{-- Card --}}

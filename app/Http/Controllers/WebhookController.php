@@ -136,7 +136,10 @@ class WebhookController extends Controller
 
     public function destroy(WebhookEvent $event)
     {
-        $this->authorize('delete', $event);
+        if (auth()->user()->id !== $event->user_id) {
+            abort(403, 'Unauthorized action.');
+        }
+
         $event->delete();
         return back()->with('deleted', 'Log entry deleted.');
     }
@@ -151,28 +154,35 @@ class WebhookController extends Controller
                 'message' => 'Invalid webhook token'
             ], 401);
         }
-
-        Cache::put('latest_webhook_data', [
+        Cache::put("webhook_data_{$user->id}", [
             'user_id' => $user->id,
             'payload' => $payload,
             'token' => $token,
+            'received_at' => now(),
         ], now()->addHours(1));
 
         return response()->json([
             'message' => 'received'
         ]);
     }
-    public function latest()
+
+    public function latest(Request $request)
     {
-        $cachedData = Cache::get('latest_webhook_data');
+        $user = $request->user();
+
+        if (!$user) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+
+        $cachedData = Cache::get("webhook_data_{$user->id}");
 
         if (!$cachedData) {
             return response()->json(['data' => null]);
         }
-        $payload = $cachedData['payload'];
         return response()->json([
             'data' => [
-                'payload' => $payload
+                'payload' => $cachedData['payload'],
+                'received_at' => $cachedData['received_at']
             ]
         ]);
     }
