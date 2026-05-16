@@ -4,6 +4,7 @@ use App\Http\Controllers\WebhookController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\HomeController;
 use App\Http\Controllers\TokenController;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Route;
 
 // Public routes (anyone can access)
